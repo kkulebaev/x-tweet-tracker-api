@@ -43,8 +43,9 @@ function normalizeUsername(s: string) {
   return raw.replace(/^@/, '').replace(/[^a-zA-Z0-9_]/g, '');
 }
 
-function parseUsernamesFromText(text: string) {
-  return text.split(/[\s,]+/g).map(normalizeUsername).filter(Boolean);
+function extractFirstUsername(text: string) {
+  const parts = text.split(/[\s,]+/g).map(normalizeUsername).filter(Boolean);
+  return parts[0] ?? null;
 }
 
 export function createTelegramBot() {
@@ -66,7 +67,7 @@ export function createTelegramBot() {
     const header = '🚀 <b>Voyager</b> — трекер X\n';
     if (accounts.length === 0) {
       return {
-        text: header + '\nСписок пуст. Добавь аккаунт командой:\n<code>/add boshen_c</code>',
+        text: header + '\nСписок пуст. Добавь аккаунт командой:\n<code>/add kkulebaev</code>',
         keyboard: new InlineKeyboard().text('➕ Добавить', 'ui:add').row().text('▶️ Запустить сбор', 'ui:run'),
       };
     }
@@ -121,28 +122,29 @@ export function createTelegramBot() {
     return { text, keyboard: kb };
   }
 
-  async function addAccountsByUsernames(ctx: any, names: string[]) {
-    const created: string[] = [];
-    for (const xUsername of names) {
-      const a = await prisma.account.upsert({
-        where: { xUsername },
-        create: { xUsername },
-        update: { enabled: true },
-      });
-      created.push(a.xUsername);
-    }
+  async function addAccountByUsername(ctx: any, xUsername: string) {
+    const a = await prisma.account.upsert({
+      where: { xUsername },
+      create: { xUsername },
+      update: { enabled: true },
+    });
 
     const { text: listText, keyboard } = await renderAccountsMessage();
-    await ctx.reply(`✅ Добавил/включил: ${created.map((x: string) => '@' + x).join(', ')}`);
+    await ctx.reply(`✅ Добавил/включил: @${a.xUsername}`);
     await ctx.reply(listText, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 
   async function promptAdd(ctx: any) {
     state.awaitingAddUsernames = true;
-    await ctx.reply('Введи юзернейм(ы) X одним сообщением (можно несколько через пробел/запятую), например: <code>boshen_c</code>', {
-      parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard().text('❌ Отмена', 'ui:list'),
-    });
+    await ctx.reply(
+      'Отправь юзернейм или ссылку на профиль X, например:\n' +
+        '<code>kkulebaev</code>\n' +
+        '<code>https://x.com/kkulebaev</code>',
+      {
+        parse_mode: 'HTML',
+        reply_markup: new InlineKeyboard().text('❌ Отмена', 'ui:list'),
+      },
+    );
   }
 
   bot.command('start', async (ctx) => {
@@ -157,7 +159,7 @@ export function createTelegramBot() {
       '🛰️ <b>Voyager</b> — админка\n\n' +
         'Команды:\n' +
         '<code>/list</code> — список аккаунтов\n' +
-        '<code>/add boshen_c elonmusk</code> — добавить (можно несколько)\n' +
+        '<code>/add kkulebaev</code> — добавить аккаунт\n' +
         '<code>/run</code> — запустить сбор вручную',
       { parse_mode: 'HTML' },
     );
@@ -172,14 +174,20 @@ export function createTelegramBot() {
   bot.command('add', async (ctx) => {
     mustAdmin(ctx.from?.id);
     const text = String(ctx.match ?? '').trim();
-    const names = parseUsernamesFromText(text);
-    if (names.length === 0) {
+
+    if (!text) {
       await promptAdd(ctx);
       return;
     }
 
+    const one = extractFirstUsername(text);
+    if (!one) {
+      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>/add kkulebaev</code>', { parse_mode: 'HTML' });
+      return;
+    }
+
     state.awaitingAddUsernames = false;
-    await addAccountsByUsernames(ctx, names);
+    await addAccountByUsername(ctx, one);
   });
 
   bot.command('run', async (ctx) => {
@@ -209,14 +217,14 @@ export function createTelegramBot() {
     // ignore commands
     if (text.startsWith('/')) return;
 
-    const names = parseUsernamesFromText(text);
-    if (names.length === 0) {
-      await ctx.reply('Не вижу юзернеймы. Пример: <code>boshen_c</code>', { parse_mode: 'HTML' });
+    const one = extractFirstUsername(text);
+    if (!one) {
+      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>kkulebaev</code>', { parse_mode: 'HTML' });
       return;
     }
 
     state.awaitingAddUsernames = false;
-    await addAccountsByUsernames(ctx, names);
+    await addAccountByUsername(ctx, one);
   });
 
   bot.on('callback_query:data', async (ctx) => {
