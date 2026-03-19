@@ -1,4 +1,9 @@
 import { Bot, InlineKeyboard } from 'grammy';
+
+const HTML_NO_PREVIEW = {
+  parse_mode: 'HTML' as const,
+  link_preview_options: { is_disabled: true },
+};
 import { mustEnv } from './env.js';
 import { prisma } from './prisma.js';
 
@@ -131,7 +136,7 @@ export function createTelegramBot() {
 
     const { text: listText, keyboard } = await renderAccountsMessage();
     await ctx.reply(`✅ Добавил/включил: @${a.xUsername}`);
-    await ctx.reply(listText, { parse_mode: 'HTML', reply_markup: keyboard });
+    await ctx.reply(listText, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
   }
 
   async function promptAdd(ctx: any) {
@@ -141,7 +146,7 @@ export function createTelegramBot() {
         '<code>kkulebaev</code>\n' +
         '<code>https://x.com/kkulebaev</code>',
       {
-        parse_mode: 'HTML',
+        ...HTML_NO_PREVIEW,
         reply_markup: new InlineKeyboard().text('❌ Отмена', 'ui:list'),
       },
     );
@@ -150,7 +155,7 @@ export function createTelegramBot() {
   bot.command('start', async (ctx) => {
     mustAdmin(ctx.from?.id);
     const { text, keyboard } = await renderAccountsMessage();
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await ctx.reply(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
   });
 
   bot.command('help', async (ctx) => {
@@ -161,14 +166,14 @@ export function createTelegramBot() {
         '<code>/list</code> — список аккаунтов\n' +
         '<code>/add kkulebaev</code> — добавить аккаунт\n' +
         '<code>/run</code> — запустить сбор вручную',
-      { parse_mode: 'HTML' },
+      { ...HTML_NO_PREVIEW },
     );
   });
 
   bot.command('list', async (ctx) => {
     mustAdmin(ctx.from?.id);
     const { text, keyboard } = await renderAccountsMessage();
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await ctx.reply(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
   });
 
   bot.command('add', async (ctx) => {
@@ -182,7 +187,7 @@ export function createTelegramBot() {
 
     const one = extractFirstUsername(text);
     if (!one) {
-      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>/add kkulebaev</code>', { parse_mode: 'HTML' });
+      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>/add kkulebaev</code>', { ...HTML_NO_PREVIEW });
       return;
     }
 
@@ -219,7 +224,7 @@ export function createTelegramBot() {
 
     const one = extractFirstUsername(text);
     if (!one) {
-      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>kkulebaev</code>', { parse_mode: 'HTML' });
+      await ctx.reply('Не вижу юзернейм/ссылку. Пример: <code>kkulebaev</code>', { ...HTML_NO_PREVIEW });
       return;
     }
 
@@ -238,7 +243,7 @@ export function createTelegramBot() {
       const { text, keyboard } = await renderAccountsMessage();
       if (ctx.callbackQuery.message) {
         try {
-          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+          await ctx.editMessageText(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
         } catch (e) {
           if (!isMessageNotModifiedError(e)) throw e;
         }
@@ -271,7 +276,7 @@ export function createTelegramBot() {
       const { text, keyboard } = await renderAccountCard(id);
       if (ctx.callbackQuery.message) {
         try {
-          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+          await ctx.editMessageText(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
         } catch (e) {
           if (!isMessageNotModifiedError(e)) throw e;
         }
@@ -289,7 +294,7 @@ export function createTelegramBot() {
       const { text, keyboard } = await renderAccountCard(id);
       if (ctx.callbackQuery.message) {
         try {
-          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+          await ctx.editMessageText(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
         } catch (e) {
           if (!isMessageNotModifiedError(e)) throw e;
         }
@@ -305,7 +310,7 @@ export function createTelegramBot() {
       const kb = new InlineKeyboard().text('🗑 Удалить', `acc:delyes:${id}`).text('❌ Отмена', `acc:open:${id}`);
 
       try {
-        await ctx.editMessageText(`Удалить <b>@${acc.xUsername}</b>?`, { parse_mode: 'HTML', reply_markup: kb });
+        await ctx.editMessageText(`Удалить <b>@${acc.xUsername}</b>?`, { ...HTML_NO_PREVIEW, reply_markup: kb });
       } catch (e) {
         if (!isMessageNotModifiedError(e)) throw e;
       }
@@ -319,7 +324,7 @@ export function createTelegramBot() {
       const { text, keyboard } = await renderAccountsMessage();
       if (ctx.callbackQuery.message) {
         try {
-          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+          await ctx.editMessageText(text, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
         } catch (e) {
           if (!isMessageNotModifiedError(e)) throw e;
         }
