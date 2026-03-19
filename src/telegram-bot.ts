@@ -43,22 +43,49 @@ async function renderAccountsMessage() {
     return `${idx + 1}. ${st} <b>@${a.xUsername}</b>`;
   });
 
-  // One row per account: toggle + delete
+  // Grid 4×N: open account card by number
   const kb = new InlineKeyboard();
   accounts.forEach((a, idx) => {
     const n = idx + 1;
-    kb.text(`${n} ${a.enabled ? '⛔ Выкл' : '✅ Вкл'}`, `acc:toggle:${a.id}`)
-      .text(`${n} 🗑`, `acc:delask:${a.id}`)
-      .row();
+    kb.text(String(n), `acc:open:${a.id}`);
+    if (n % 4 === 0) kb.row();
   });
+  kb.row();
 
   kb.text('🔄 Обновить', 'ui:list').text('▶️ Запустить сбор', 'ui:run').row();
   kb.text('➕ Добавить', 'ui:add');
 
   return {
-    text: header + '\n' + lines.join('\n'),
+    text: header + '\n' + lines.join('\n') + '\n\nНажми на номер ниже, чтобы открыть карточку аккаунта.',
     keyboard: kb,
   };
+}
+
+async function renderAccountCard(id: string) {
+  const acc = await prisma.account.findUnique({ where: { id } });
+  if (!acc) {
+    return {
+      text: '🙃 Аккаунт не найден',
+      keyboard: new InlineKeyboard().text('⬅️ Назад', 'ui:list'),
+    };
+  }
+
+  const status = acc.enabled ? '✅ включён' : '⛔ выключен';
+  const since = acc.sinceId ? `<code>${acc.sinceId}</code>` : '—';
+
+  const text =
+    `🛰️ <b>Аккаунт</b>\n\n` +
+    `<b>@${acc.xUsername}</b>\n` +
+    `Статус: ${status}\n` +
+    `since_id: ${since}`;
+
+  const kb = new InlineKeyboard();
+  kb.text(acc.enabled ? '⛔ Выключить' : '✅ Включить', `acc:toggle:${acc.id}`).row();
+  kb.text('▶️ Запустить сбор', `acc:run:${acc.id}`).row();
+  kb.text('🗑 Удалить', `acc:delask:${acc.id}`).row();
+  kb.text('⬅️ Назад к списку', 'ui:list');
+
+  return { text, keyboard: kb };
 }
 
 export function createTelegramBot() {
@@ -153,6 +180,19 @@ export function createTelegramBot() {
       return;
     }
 
+    if (data.startsWith('acc:open:')) {
+      const id = data.split(':')[2];
+      const { text, keyboard } = await renderAccountCard(id);
+      if (ctx.callbackQuery.message) {
+        try {
+          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+        } catch (e) {
+          if (!isMessageNotModifiedError(e)) throw e;
+        }
+      }
+      return;
+    }
+
     if (data === 'ui:run') {
       const { runWorkerOnce } = await import('./worker.js');
       const r = await runWorkerOnce();
@@ -179,7 +219,8 @@ export function createTelegramBot() {
       if (!acc) return;
       await prisma.account.update({ where: { id }, data: { enabled: !acc.enabled } });
 
-      const { text, keyboard } = await renderAccountsMessage();
+      // stay on the account card
+      const { text, keyboard } = await renderAccountCard(id);
       if (ctx.callbackQuery.message) {
         try {
           await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -197,12 +238,38 @@ export function createTelegramBot() {
 
       const kb = new InlineKeyboard()
         .text('🗑 Удалить', `acc:delyes:${id}`)
-        .text('❌ Отмена', 'ui:list');
+        .text('❌ Отмена', `acc:open:${id}`);
 
       try {
         await ctx.editMessageText(`Удалить <b>@${acc.xUsername}</b>?`, { parse_mode: 'HTML', reply_markup: kb });
       } catch (e) {
         if (!isMessageNotModifiedError(e)) throw e;
+      }
+      return;
+    }
+
+    if (data.startsWith('acc:run:')) {
+      const id = data.split(':')[2];
+      const acc = await prisma.account.findUnique({ where: { id } });
+      if (!acc) return;
+
+      const { runWorkerOnce } = await import('./worker.js');
+      const r = await runWorkerOnce();
+
+      const msg = `✅ Сбор запущен\n` +
+        `Аккаунтов: ${r.accountsProcessed}/${r.accountsTotal}\n` +
+        `Твитов сохранено: ${r.tweetsInserted}\n` +
+        `Ошибок: ${r.errors.length}`;
+
+      const { text, keyboard } = await renderAccountCard(id);
+      const full = msg + `\n\n` + text;
+
+      if (ctx.callbackQuery.message) {
+        try {
+          await ctx.editMessageText(full, { parse_mode: 'HTML', reply_markup: keyboard });
+        } catch (e) {
+          if (!isMessageNotModifiedError(e)) throw e;
+        }
       }
       return;
     }
