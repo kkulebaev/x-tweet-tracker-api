@@ -21,80 +21,106 @@ function normalizeUsername(s: string) {
 }
 
 function parseUsernamesFromText(text: string) {
-  return text
-    .split(/[\s,]+/g)
-    .map(normalizeUsername)
-    .filter(Boolean);
-}
-
-async function renderAccountsMessage() {
-  const accounts = await prisma.account.findMany({ orderBy: { createdAt: 'asc' } });
-
-  const header = '🚀 <b>Voyager</b> — трекер X\n';
-  if (accounts.length === 0) {
-    return {
-      text: header + '\nСписок пуст. Добавь аккаунт командой:\n<code>/add boshen_c</code>',
-      keyboard: new InlineKeyboard().text('➕ Добавить', 'ui:add').row().text('▶️ Запустить сбор', 'ui:run'),
-    };
-  }
-
-  const lines = accounts.map((a, idx) => {
-    const st = a.enabled ? '✅' : '⛔';
-    return `${idx + 1}. ${st} <b>@${a.xUsername}</b>`;
-  });
-
-  // Grid 4×N: open account card by number
-  const kb = new InlineKeyboard();
-  accounts.forEach((a, idx) => {
-    const n = idx + 1;
-    kb.text(String(n), `acc:open:${a.id}`);
-    if (n % 4 === 0) kb.row();
-  });
-  kb.row();
-
-  kb.text('🔄 Обновить', 'ui:list').text('▶️ Запустить сбор', 'ui:run').row();
-  kb.text('➕ Добавить', 'ui:add');
-
-  return {
-    text: header + '\n' + lines.join('\n') + '\n\nНажми на номер ниже, чтобы открыть карточку аккаунта.',
-    keyboard: kb,
-  };
-}
-
-async function renderAccountCard(id: string) {
-  const acc = await prisma.account.findUnique({ where: { id } });
-  if (!acc) {
-    return {
-      text: '🙃 Аккаунт не найден',
-      keyboard: new InlineKeyboard().text('⬅️ Назад', 'ui:list'),
-    };
-  }
-
-  const status = acc.enabled ? '✅ включён' : '⛔ выключен';
-  const since = acc.sinceId ? `<code>${acc.sinceId}</code>` : '—';
-
-  const text =
-    `🛰️ <b>Аккаунт</b>\n\n` +
-    `<b>@${acc.xUsername}</b>\n` +
-    `Статус: ${status}\n` +
-    `since_id: ${since}`;
-
-  const kb = new InlineKeyboard();
-  kb.text(acc.enabled ? '⛔ Выключить' : '✅ Включить', `acc:toggle:${acc.id}`).row();
-  kb.text('▶️ Запустить сбор', `acc:run:${acc.id}`).row();
-  kb.text('🗑 Удалить', `acc:delask:${acc.id}`).row();
-  kb.text('⬅️ Назад к списку', 'ui:list');
-
-  return { text, keyboard: kb };
+  return text.split(/[\s,]+/g).map(normalizeUsername).filter(Boolean);
 }
 
 export function createTelegramBot() {
   const token = mustEnv('TELEGRAM_BOT_TOKEN');
   const bot = new Bot(token);
 
+  // Simple per-admin state (single user, server memory). Good enough for MVP.
+  const state = {
+    awaitingAddUsernames: false,
+  };
+
   bot.catch((err) => {
     console.error('telegram bot error', err);
   });
+
+  async function renderAccountsMessage() {
+    const accounts = await prisma.account.findMany({ orderBy: { createdAt: 'asc' } });
+
+    const header = '🚀 <b>Voyager</b> — трекер X\n';
+    if (accounts.length === 0) {
+      return {
+        text: header + '\nСписок пуст. Добавь аккаунт командой:\n<code>/add boshen_c</code>',
+        keyboard: new InlineKeyboard().text('➕ Добавить', 'ui:add').row().text('▶️ Запустить сбор', 'ui:run'),
+      };
+    }
+
+    const lines = accounts.map((a, idx) => {
+      const st = a.enabled ? '✅' : '⛔';
+      return `${idx + 1}. ${st} <b>@${a.xUsername}</b>`;
+    });
+
+    // Grid 4×N: open account card by number
+    const kb = new InlineKeyboard();
+    accounts.forEach((a, idx) => {
+      const n = idx + 1;
+      kb.text(String(n), `acc:open:${a.id}`);
+      if (n % 4 === 0) kb.row();
+    });
+    kb.row();
+
+    kb.text('🔄 Обновить', 'ui:list').text('▶️ Запустить сбор', 'ui:run').row();
+    kb.text('➕ Добавить', 'ui:add');
+
+    return {
+      text: header + '\n' + lines.join('\n') + '\n\nНажми на номер ниже, чтобы открыть карточку аккаунта.',
+      keyboard: kb,
+    };
+  }
+
+  async function renderAccountCard(id: string) {
+    const acc = await prisma.account.findUnique({ where: { id } });
+    if (!acc) {
+      return {
+        text: '🙃 Аккаунт не найден',
+        keyboard: new InlineKeyboard().text('⬅️ Назад', 'ui:list'),
+      };
+    }
+
+    const status = acc.enabled ? '✅ включён' : '⛔ выключен';
+    const since = acc.sinceId ? `<code>${acc.sinceId}</code>` : '—';
+
+    const text =
+      `🛰️ <b>Аккаунт</b>\n\n` +
+      `<b>@${acc.xUsername}</b>\n` +
+      `Статус: ${status}\n` +
+      `since_id: ${since}`;
+
+    const kb = new InlineKeyboard();
+    kb.text(acc.enabled ? '⛔ Выключить' : '✅ Включить', `acc:toggle:${acc.id}`).row();
+    kb.text('▶️ Запустить сбор', `acc:run:${acc.id}`).row();
+    kb.text('🗑 Удалить', `acc:delask:${acc.id}`).row();
+    kb.text('⬅️ Назад к списку', 'ui:list');
+
+    return { text, keyboard: kb };
+  }
+
+  async function addAccountsByUsernames(ctx: any, names: string[]) {
+    const created: string[] = [];
+    for (const xUsername of names) {
+      const a = await prisma.account.upsert({
+        where: { xUsername },
+        create: { xUsername },
+        update: { enabled: true },
+      });
+      created.push(a.xUsername);
+    }
+
+    const { text: listText, keyboard } = await renderAccountsMessage();
+    await ctx.reply(`✅ Добавил/включил: ${created.map((x: string) => '@' + x).join(', ')}`);
+    await ctx.reply(listText, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
+
+  async function promptAdd(ctx: any) {
+    state.awaitingAddUsernames = true;
+    await ctx.reply('Введи юзернейм(ы) X одним сообщением (можно несколько через пробел/запятую), например: <code>boshen_c</code>', {
+      parse_mode: 'HTML',
+      reply_markup: new InlineKeyboard().text('❌ Отмена', 'ui:list'),
+    });
+  }
 
   bot.command('start', async (ctx) => {
     mustAdmin(ctx.from?.id);
@@ -125,23 +151,12 @@ export function createTelegramBot() {
     const text = String(ctx.match ?? '').trim();
     const names = parseUsernamesFromText(text);
     if (names.length === 0) {
-      await ctx.reply('Формат: <code>/add boshen_c elonmusk</code>', { parse_mode: 'HTML' });
+      await promptAdd(ctx);
       return;
     }
 
-    const created: string[] = [];
-    for (const xUsername of names) {
-      const a = await prisma.account.upsert({
-        where: { xUsername },
-        create: { xUsername },
-        update: { enabled: true },
-      });
-      created.push(a.xUsername);
-    }
-
-    const { text: listText, keyboard } = await renderAccountsMessage();
-    await ctx.reply(`✅ Добавил/включил: ${created.map((x) => '@' + x).join(', ')}`, { parse_mode: 'HTML' });
-    await ctx.reply(listText, { parse_mode: 'HTML', reply_markup: keyboard });
+    state.awaitingAddUsernames = false;
+    await addAccountsByUsernames(ctx, names);
   });
 
   bot.command('run', async (ctx) => {
@@ -162,6 +177,25 @@ export function createTelegramBot() {
     );
   });
 
+  // If user pressed "Добавить" and then sent a message with usernames
+  bot.on('message:text', async (ctx) => {
+    if (!state.awaitingAddUsernames) return;
+    mustAdmin(ctx.from?.id);
+
+    const text = String(ctx.message.text ?? '').trim();
+    // ignore commands
+    if (text.startsWith('/')) return;
+
+    const names = parseUsernamesFromText(text);
+    if (names.length === 0) {
+      await ctx.reply('Не вижу юзернеймы. Пример: <code>boshen_c</code>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    state.awaitingAddUsernames = false;
+    await addAccountsByUsernames(ctx, names);
+  });
+
   bot.on('callback_query:data', async (ctx) => {
     mustAdmin(ctx.from?.id);
     const data = String(ctx.callbackQuery.data);
@@ -169,20 +203,8 @@ export function createTelegramBot() {
 
     // Simple UI actions
     if (data === 'ui:list') {
+      state.awaitingAddUsernames = false;
       const { text, keyboard } = await renderAccountsMessage();
-      if (ctx.callbackQuery.message) {
-        try {
-          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-        } catch (e) {
-          if (!isMessageNotModifiedError(e)) throw e;
-        }
-      }
-      return;
-    }
-
-    if (data.startsWith('acc:open:')) {
-      const id = data.split(':')[2];
-      const { text, keyboard } = await renderAccountCard(id);
       if (ctx.callbackQuery.message) {
         try {
           await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -208,11 +230,24 @@ export function createTelegramBot() {
     }
 
     if (data === 'ui:add') {
-      await ctx.reply('Пришли командой: <code>/add boshen_c elonmusk</code>', { parse_mode: 'HTML' });
+      await promptAdd(ctx);
       return;
     }
 
     // Per-account actions
+    if (data.startsWith('acc:open:')) {
+      const id = data.split(':')[2];
+      const { text, keyboard } = await renderAccountCard(id);
+      if (ctx.callbackQuery.message) {
+        try {
+          await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+        } catch (e) {
+          if (!isMessageNotModifiedError(e)) throw e;
+        }
+      }
+      return;
+    }
+
     if (data.startsWith('acc:toggle:')) {
       const id = data.split(':')[2];
       const acc = await prisma.account.findUnique({ where: { id } });
@@ -236,9 +271,7 @@ export function createTelegramBot() {
       const acc = await prisma.account.findUnique({ where: { id } });
       if (!acc || !ctx.callbackQuery.message) return;
 
-      const kb = new InlineKeyboard()
-        .text('🗑 Удалить', `acc:delyes:${id}`)
-        .text('❌ Отмена', `acc:open:${id}`);
+      const kb = new InlineKeyboard().text('🗑 Удалить', `acc:delyes:${id}`).text('❌ Отмена', `acc:open:${id}`);
 
       try {
         await ctx.editMessageText(`Удалить <b>@${acc.xUsername}</b>?`, { parse_mode: 'HTML', reply_markup: kb });
@@ -256,7 +289,8 @@ export function createTelegramBot() {
       const { runWorkerOnce } = await import('./worker.js');
       const r = await runWorkerOnce();
 
-      const msg = `✅ Сбор запущен\n` +
+      const msg =
+        `✅ Сбор запущен\n` +
         `Аккаунтов: ${r.accountsProcessed}/${r.accountsTotal}\n` +
         `Твитов сохранено: ${r.tweetsInserted}\n` +
         `Ошибок: ${r.errors.length}`;
