@@ -73,7 +73,8 @@ export function createTelegramBot() {
 
     const lines = accounts.map((a, idx) => {
       const st = a.enabled ? '✅' : '⛔';
-      return `${idx + 1}. ${st} <b>@${a.xUsername}</b>`;
+      const url = `https://x.com/${a.xUsername}`;
+      return `${idx + 1}. ${st} <a href="${url}">@${a.xUsername}</a>`;
     });
 
     // Grid 4×N: open account card by number
@@ -108,7 +109,7 @@ export function createTelegramBot() {
 
     const text =
       `🛰️ <b>Аккаунт</b>\n\n` +
-      `<b>@${acc.xUsername}</b>\n` +
+      `<a href="https://x.com/${acc.xUsername}">@${acc.xUsername}</a>\n` +
       `Статус: ${status}\n` +
       `since_id: ${since}`;
 
