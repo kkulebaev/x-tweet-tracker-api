@@ -37,32 +37,12 @@ export async function runWorkerOnce(): Promise<RunResult> {
         await prisma.account.update({ where: { id: acc.id }, data: { xUserId } });
       }
 
-      const { tweets, newestId } = await getUserTweets({ userId: xUserId!, sinceId: acc.sinceId, maxResults: 100 });
+      // Keep API usage low: fetch a small page and store only the latest tweet.
+      const { tweets, newestId } = await getUserTweets({ userId: xUserId!, sinceId: acc.sinceId, maxResults: 5 });
 
-      // First run: store only the latest post to avoid backfilling history.
-      const isFirstRun = !acc.sinceId;
-
-      let selected = tweets;
-      if (isFirstRun && tweets.length > 0) {
-        // Pick the newest tweet deterministically.
-        selected = [
-          tweets.reduce((best, cur) => {
-            const bDate = best.created_at ? Date.parse(best.created_at) : 0;
-            const cDate = cur.created_at ? Date.parse(cur.created_at) : 0;
-            if (cDate !== bDate) return cDate > bDate ? cur : best;
-
-            // Fallback: compare snowflake ids as BigInt.
-            try {
-              return BigInt(cur.id) > BigInt(best.id) ? cur : best;
-            } catch {
-              return cur.id > best.id ? cur : best;
-            }
-          }),
-        ];
-      }
-
-      // Insert oldest -> newest for nicer ordering in logs
-      const sorted = [...selected].sort((a, b) => (a.id < b.id ? -1 : 1));
+      // Store up to 5 latest tweets returned by API.
+      // Insert oldest -> newest for nicer ordering in logs.
+      const sorted = [...tweets].sort((a, b) => (a.id < b.id ? -1 : 1));
 
       for (const t of sorted) {
         const createdAt = t.created_at ? new Date(t.created_at) : new Date();
@@ -87,7 +67,7 @@ export async function runWorkerOnce(): Promise<RunResult> {
       }
 
       // update sinceId to newest_id returned by API (or to selected latest for first run)
-      const nextSinceId = newestId || (selected.length ? selected[selected.length - 1].id : null);
+      const nextSinceId = newestId || (sorted.length ? sorted[sorted.length - 1].id : null);
       if (nextSinceId) {
         await prisma.account.update({ where: { id: acc.id }, data: { sinceId: nextSinceId } });
       }

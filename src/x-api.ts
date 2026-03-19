@@ -66,7 +66,8 @@ export async function getUserTweets(args: {
   sinceId?: string | null;
   maxResults?: number;
 }): Promise<{ tweets: XTweet[]; newestId?: string }> {
-  const max = Math.min(Math.max(args.maxResults ?? 50, 5), 100);
+  // X API v2 users/:id/tweets has min max_results=5, so we use 5 by default.
+  const max = Math.min(Math.max(args.maxResults ?? 5, 5), 100);
 
   const r = await xFetch<{
     data?: XTweet[];
