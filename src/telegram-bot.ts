@@ -45,8 +45,11 @@ async function renderAccountsMessage() {
 
   // One row per account: toggle + delete
   const kb = new InlineKeyboard();
-  accounts.forEach((a) => {
-    kb.text(a.enabled ? '⛔ Выкл' : '✅ Вкл', `acc:toggle:${a.id}`).text('🗑', `acc:delask:${a.id}`).row();
+  accounts.forEach((a, idx) => {
+    const n = idx + 1;
+    kb.text(`${n} ${a.enabled ? '⛔ Выкл' : '✅ Вкл'}`, `acc:toggle:${a.id}`)
+      .text(`${n} 🗑`, `acc:delask:${a.id}`)
+      .row();
   });
 
   kb.text('🔄 Обновить', 'ui:list').text('▶️ Запустить сбор', 'ui:run').row();
