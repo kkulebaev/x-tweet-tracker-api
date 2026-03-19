@@ -18,6 +18,10 @@ Hourly tracker for new posts from a list of X accounts.
 - `X_BEARER_TOKEN`
 - `ADMIN_TOKEN` (for admin API)
 
+Telegram admin bot:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ADMIN_USER_ID`
+
 ## Local dev
 ```bash
 npm ci
@@ -32,6 +36,13 @@ Admin endpoints (Bearer auth):
 - `DELETE /admin/accounts/:id`
 - `POST /admin/run` (run worker now)
 - `GET /admin/tweets?x_username=elonmusk&limit=50`
+
+Telegram admin bot (recommended UX):
+- Webhook: `POST /telegram/webhook`
+- Commands:
+  - `/list`
+  - `/add <x_usernames>`
+  - `/run`
 
 ## Railway
 Create 2 services:

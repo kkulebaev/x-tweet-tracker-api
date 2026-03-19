@@ -3,6 +3,7 @@ import express from 'express';
 import { mustEnv } from './env.js';
 import { prisma } from './prisma.js';
 import { runWorkerOnce } from './worker.js';
+import { createTelegramBot } from './telegram-bot.js';
 
 function adminAuth() {
   const expected = mustEnv('ADMIN_TOKEN');
@@ -79,4 +80,16 @@ app.get('/admin/tweets', adminAuth(), async (req, res) => {
 const PORT = Number(process.env.PORT ?? 3000);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`x-tweet-tracker listening on 0.0.0.0:${PORT}`);
+});
+
+// Telegram bot webhook endpoint
+const bot = createTelegramBot();
+app.post('/telegram/webhook', async (req, res) => {
+  try {
+    await bot.handleUpdate(req.body);
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('telegram webhook error', e);
+    res.sendStatus(500);
+  }
 });
