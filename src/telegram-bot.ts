@@ -29,7 +29,7 @@ export function createTelegramBot() {
 
   bot.command('start', async (ctx) => {
     mustAdmin(ctx.from?.id);
-    await ctx.reply('x-tweet-tracker admin bot\n\nCommands:\n/list — list accounts\n/add <usernames> — add accounts\n/run — run worker now');
+    await ctx.reply('Voyager — x-tweet-tracker admin bot\n\nCommands:\n/list — list accounts\n/add <usernames> — add accounts\n/run — run worker now');
   });
 
   bot.command('list', async (ctx) => {
