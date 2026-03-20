@@ -1,13 +1,9 @@
 <p align="center">
-  <img src="./assets/voyager-banner.svg" alt="Voyager banner" />
+  <img src="./assets/voyager-api-banner.svg" alt="Voyager API banner" />
 </p>
 
 <p align="center">
-  <strong>Voyager</strong> · X Tweet Tracker
-</p>
-
-<p align="center">
-  Track new posts from a curated list of X accounts on a schedule.
+  <strong>Voyager API</strong> · storage + admin endpoints for x-tweet-tracker
 </p>
 
 <p align="center">
@@ -17,111 +13,59 @@
   <img alt="deploy" src="https://img.shields.io/badge/deploy-Railway-6B46C1" />
 </p>
 
-# x-tweet-tracker
+# x-tweet-tracker-api
 
-**Voyager** is a small service that periodically fetches recent public posts from a configured list of X accounts and stores them in Postgres.
+This service is the **single source of truth** for persistence:
+- stores accounts and tweets in Postgres
+- exposes admin endpoints for bot/cron clients
 
-## What it does
-- Stores accounts in `accounts` (`x_username`, `enabled`, `since_id`)
-- Fetches **up to 5 latest posts** per account per run via **X API** (Bearer token)
-- Saves posts to `tweets` (deduplicated by `tweet_id`)
-- Provides a minimal **admin API** and a **Telegram admin bot UI**
+X API calls are performed by **x-tweet-tracker-cron**. The cron pushes fetched tweets into this API.
 
-## Tech
-- Node.js + TypeScript
-- Express (admin API + Telegram webhook)
-- Prisma + PostgreSQL
-- Railway (Web service) + Railway Cron (worker)
+## Services architecture
+- **API** (this repo): DB + admin endpoints
+- **Cron** (`x-tweet-tracker-cron`): reads accounts from API → fetches from X API → pushes tweets back
+- **Bot** (`x-tweet-tracker-bot`): Telegram admin UI → talks to API only
 
-## Data model (high level)
-- `accounts`
-  - `x_username` — X username
-  - `x_user_id` — resolved via API (cached)
-  - `since_id` — last seen tweet id (for incremental fetching)
-  - `enabled`
-- `tweets`
-  - `tweet_id` (PK)
-  - `account_id` (FK)
-  - `created_at`, `text`, `url`, `raw`
+## Endpoints (admin)
+All endpoints require:
+`Authorization: Bearer <ADMIN_TOKEN>`
+
+Accounts:
+- `GET /admin/accounts`
+- `GET /admin/accounts/:id`
+- `POST /admin/accounts` body: `{ "x_username": "kkulebaev" }`
+- `PATCH /admin/accounts/:id` body (any of):
+  - `{ "enabled": false }`
+  - `{ "x_user_id": "<id>" }`
+  - `{ "since_id": "<tweet_id>" }`
+- `DELETE /admin/accounts/:id`
+
+Tweets:
+- `GET /admin/tweets?x_username=kkulebaev&limit=50`
+- `POST /admin/tweets/push` (used by cron)
 
 ## Environment variables
-
-### Required (both Web + Cron)
 - `DATABASE_URL` — Railway Postgres connection string
-- `X_BEARER_TOKEN` — X API Bearer token
+- `ADMIN_TOKEN` — bearer token for admin endpoints
 
-### Web service (admin API)
-- `ADMIN_TOKEN` — used as `Authorization: Bearer <ADMIN_TOKEN>` for `/admin/*`
-
-### Telegram admin bot (recommended UX)
-- `TELEGRAM_BOT_TOKEN` — token from BotFather
-- `TELEGRAM_ADMIN_USER_ID` — your Telegram numeric user id (only this user can access)
-
-> Railway usually sets `PORT` automatically.
-
-## Telegram admin bot
-
-Webhook endpoint:
-- `POST /telegram/webhook`
-
-Commands (recommended to set in BotFather):
-- `/start` — открыть админку
-- `/help` — помощь
-- `/list` — список аккаунтов
-- `/add` — добавить аккаунт (юзернейм или ссылка на профиль)
-- `/run` — запустить сбор вручную
-
-UX notes:
-- Список аккаунтов — кнопки-номера (grid 4×N), открывают карточку аккаунта.
-- В карточке: включить/выключить, удалить (с подтверждением).
-
-## Admin API
-All endpoints require:
-- `Authorization: Bearer <ADMIN_TOKEN>`
-
-Endpoints:
-- `GET /admin/accounts`
-- `POST /admin/accounts` body: `{ "x_username": "kkulebaev" }`
-- `PATCH /admin/accounts/:id` body: `{ "enabled": false }`
-- `DELETE /admin/accounts/:id`
-- `POST /admin/run`
-- `GET /admin/tweets?x_username=kkulebaev&limit=50`
+> No `X_BEARER_TOKEN` here: X API calls live in the cron service.
 
 ## Local development
 
 ```bash
 npm ci
 npx prisma generate
-
-# create/apply local migration (for local DB)
-# for Railway/production use migrate deploy
 npx prisma migrate dev
-
 npm run dev
 ```
 
 ## Railway deployment
-
-### Web service
-Build command:
+Build:
 ```bash
 npm ci && npm run build && npx prisma generate
 ```
 
-Start command:
+Start:
 ```bash
 npm run prisma:migrate && npm start
 ```
-
-### Cron job
-Command:
-```bash
-npm run prisma:migrate && npm run cron
-```
-
-Schedule:
-- `0 * * * *` (hourly)
-
-## Notes
-- This project is designed to be small and cheap to run. Keep API usage low.
-- Telegram link previews are disabled in messages to keep UI clean.
