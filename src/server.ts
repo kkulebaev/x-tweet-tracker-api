@@ -73,12 +73,6 @@ app.delete('/admin/accounts/:id', adminAuth(), async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/admin/sync', adminAuth(), async (_req, res) => {
-  // Cron is responsible for fetching data from X API and then pushing results here.
-  // This endpoint is kept to trigger a sync run in the cron service (not implemented here).
-  res.status(501).json({ ok: false, error: 'Not implemented: use cron service to sync' });
-});
-
 app.post('/admin/tweets/push', adminAuth(), async (req, res) => {
   const accountId = String(req.body?.accountId ?? '').trim();
   const newestId = req.body?.newestId ? String(req.body.newestId).trim() : null;
