@@ -28,6 +28,13 @@ app.get('/admin/accounts', adminAuth(), async (_req, res) => {
   res.json({ ok: true, accounts });
 });
 
+app.get('/admin/accounts/:id', adminAuth(), async (req, res) => {
+  const id = String(req.params.id);
+  const account = await prisma.account.findUnique({ where: { id } });
+  if (!account) return res.status(404).json({ ok: false, error: 'Not found' });
+  res.json({ ok: true, account });
+});
+
 app.post('/admin/accounts', adminAuth(), async (req, res) => {
   const xUsername = String(req.body?.x_username ?? req.body?.xUsername ?? '').trim().replace(/^@/, '');
   if (!xUsername) return res.status(400).json({ ok: false, error: 'x_username is required' });
