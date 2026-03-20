@@ -5,7 +5,15 @@ const HTML_NO_PREVIEW = {
   link_preview_options: { is_disabled: true },
 };
 import { mustEnv } from './env.js';
-import { prisma } from './prisma.js';
+import {
+  apiAddAccount,
+  apiDeleteAccount,
+  apiGetAccount,
+  apiListAccounts,
+  apiRunWorker,
+  apiToggleAccount,
+  type AccountDTO,
+} from './api-client.js';
 
 function isMessageNotModifiedError(e: unknown) {
   const msg = String((e as any)?.description ?? (e as any)?.message ?? '').toLowerCase();
@@ -67,7 +75,7 @@ export function createTelegramBot() {
   });
 
   async function renderAccountsMessage() {
-    const accounts = await prisma.account.findMany({ orderBy: { createdAt: 'asc' } });
+    const { accounts } = await apiListAccounts();
 
     const header = '🚀 <b>Voyager</b> — трекер X\n';
     if (accounts.length === 0) {
@@ -102,7 +110,14 @@ export function createTelegramBot() {
   }
 
   async function renderAccountCard(id: string) {
-    const acc = await prisma.account.findUnique({ where: { id } });
+    let acc: AccountDTO | null = null;
+    try {
+      const r = await apiGetAccount(id);
+      acc = r.account;
+    } catch {
+      acc = null;
+    }
+
     if (!acc) {
       return {
         text: '🙃 Аккаунт не найден',
@@ -128,14 +143,10 @@ export function createTelegramBot() {
   }
 
   async function addAccountByUsername(ctx: any, xUsername: string) {
-    const a = await prisma.account.upsert({
-      where: { xUsername },
-      create: { xUsername },
-      update: { enabled: true },
-    });
+    const r = await apiAddAccount(xUsername);
 
     const { text: listText, keyboard } = await renderAccountsMessage();
-    await ctx.reply(`✅ Добавил/включил: @${a.xUsername}`);
+    await ctx.reply(`✅ Добавил/включил: @${r.account.xUsername}`);
     await ctx.reply(listText, { ...HTML_NO_PREVIEW, reply_markup: keyboard });
   }
 
@@ -198,17 +209,17 @@ export function createTelegramBot() {
   bot.command('run', async (ctx) => {
     mustAdmin(ctx.from?.id);
     await ctx.reply('⏳ Запускаю сбор…');
-    const { runWorkerOnce } = await import('./worker.js');
-    const r = await runWorkerOnce();
+    const r = await apiRunWorker();
+    const rr = r.result;
 
-    const errLines = r.errors.slice(0, 5).map((e) => `- @${e.xUsername}: ${e.error}`).join('\n');
-    const errBlock = r.errors.length ? `\n\nОшибки (первые 5):\n${errLines}` : '';
+    const errLines = rr.errors.slice(0, 5).map((e) => `- @${e.xUsername}: ${e.error}`).join('\n');
+    const errBlock = rr.errors.length ? `\n\nОшибки (первые 5):\n${errLines}` : '';
 
     await ctx.reply(
       `✅ Готово\n` +
-        `Аккаунтов: ${r.accountsProcessed}/${r.accountsTotal}\n` +
-        `Сохранено твитов: ${r.tweetsInserted}\n` +
-        `Ошибок: ${r.errors.length}` +
+        `Аккаунтов: ${rr.accountsProcessed}/${rr.accountsTotal}\n` +
+        `Сохранено твитов: ${rr.tweetsInserted}\n` +
+        `Ошибок: ${rr.errors.length}` +
         errBlock,
     );
   });
@@ -252,9 +263,9 @@ export function createTelegramBot() {
     }
 
     if (data === 'ui:run') {
-      const { runWorkerOnce } = await import('./worker.js');
-      const r = await runWorkerOnce();
-      const msg = `✅ Готово: аккаунтов ${r.accountsProcessed}/${r.accountsTotal}, твитов ${r.tweetsInserted}, ошибок ${r.errors.length}`;
+      const r = await apiRunWorker();
+      const rr = r.result;
+      const msg = `✅ Готово: аккаунтов ${rr.accountsProcessed}/${rr.accountsTotal}, твитов ${rr.tweetsInserted}, ошибок ${rr.errors.length}`;
       if (ctx.callbackQuery.message) {
         try {
           await ctx.editMessageText(msg);
@@ -286,9 +297,9 @@ export function createTelegramBot() {
 
     if (data.startsWith('acc:toggle:')) {
       const id = data.split(':')[2];
-      const acc = await prisma.account.findUnique({ where: { id } });
-      if (!acc) return;
-      await prisma.account.update({ where: { id }, data: { enabled: !acc.enabled } });
+      const r = await apiGetAccount(id).catch(() => null as any);
+      if (!r?.account) return;
+      await apiToggleAccount(id, !r.account.enabled);
 
       // stay on the account card
       const { text, keyboard } = await renderAccountCard(id);
@@ -304,7 +315,8 @@ export function createTelegramBot() {
 
     if (data.startsWith('acc:delask:')) {
       const id = data.split(':')[2];
-      const acc = await prisma.account.findUnique({ where: { id } });
+      const r = await apiGetAccount(id).catch(() => null as any);
+      const acc = r?.account as AccountDTO | undefined;
       if (!acc || !ctx.callbackQuery.message) return;
 
       const kb = new InlineKeyboard().text('🗑 Удалить', `acc:delyes:${id}`).text('❌ Отмена', `acc:open:${id}`);
@@ -319,7 +331,7 @@ export function createTelegramBot() {
 
     if (data.startsWith('acc:delyes:')) {
       const id = data.split(':')[2];
-      await prisma.account.delete({ where: { id } }).catch(() => {});
+      await apiDeleteAccount(id).catch(() => {});
 
       const { text, keyboard } = await renderAccountsMessage();
       if (ctx.callbackQuery.message) {
