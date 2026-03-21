@@ -11,20 +11,13 @@ function normalizeBroker(broker: string) {
 }
 
 export function kafkaEnabled() {
-  return Boolean(env('KAFKA_BROKER') || env('KAFKA_BROKERS'));
+  return Boolean(env('KAFKA_BROKER'));
 }
 
-export function kafkaTopic() {
-  return env('KAFKA_TOPIC') || 'voyager.tweets';
-}
+const TOPIC = 'voyager.tweets';
 
-const brokersRaw = env('KAFKA_BROKERS') || env('KAFKA_BROKER');
-const brokers = brokersRaw
-  ? brokersRaw
-      .split(',')
-      .map((s) => normalizeBroker(s.trim()))
-      .filter(Boolean)
-  : [];
+const broker = normalizeBroker(env('KAFKA_BROKER'));
+const brokers = broker ? [broker] : [];
 
 const kafka = new Kafka({
   clientId: env('KAFKA_CLIENT_ID') || 'x-tweet-tracker-api',
@@ -59,7 +52,7 @@ export async function publishTweets(events: KafkaTweetEvent[]) {
   const producer = await getProducer();
 
   await producer.send({
-    topic: kafkaTopic(),
+    topic: TOPIC,
     messages: events.map((e) => ({
       key: e.tweetId,
       value: JSON.stringify(e),
