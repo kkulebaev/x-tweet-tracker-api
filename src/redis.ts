@@ -41,9 +41,12 @@ export async function publishTweetsToStream(events: RedisTweetEvent[]) {
 
   const r = redis();
 
+  const start = Date.now();
+  let lastId: string | null = null;
+
   for (const e of events) {
     // Keep payload as single JSON field for easy consumers (n8n, etc.)
-    await r.xadd(
+    lastId = await r.xadd(
       STREAM_KEY,
       '*',
       'tweetId',
@@ -52,6 +55,9 @@ export async function publishTweetsToStream(events: RedisTweetEvent[]) {
       JSON.stringify(e),
     );
   }
+
+  const ms = Date.now() - start;
+  console.log(`redis xadd ${STREAM_KEY}: ${events.length} events (${ms}ms) lastId=${lastId ?? '-'}`);
 
   return { ok: true, sent: events.length };
 }
