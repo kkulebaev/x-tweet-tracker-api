@@ -18,6 +18,18 @@ function adminAuth() {
 }
 
 const app = express();
+
+// Request logging (method, path, status, duration). No headers/body logged.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const path = req.originalUrl || req.url;
+    console.log(`${req.method} ${path} -> ${res.statusCode} (${ms}ms)`);
+  });
+  next();
+});
+
 app.use(express.json());
 
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
