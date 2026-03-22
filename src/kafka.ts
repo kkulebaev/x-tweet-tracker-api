@@ -31,6 +31,37 @@ const kafka = new Kafka({
 });
 
 let producerPromise: Promise<ReturnType<typeof kafka.producer>> | null = null;
+let topicEnsured = false;
+
+async function ensureTopic() {
+  if (topicEnsured) return;
+
+  const admin = kafka.admin();
+  await admin.connect();
+  try {
+    await admin.createTopics({
+      waitForLeaders: true,
+      topics: [
+        {
+          topic: TOPIC,
+          numPartitions: 1,
+          replicationFactor: 1,
+        },
+      ],
+    });
+    topicEnsured = true;
+  } catch (e) {
+    // If topic already exists, treat as success
+    const msg = String((e as any)?.message ?? e).toLowerCase();
+    if (msg.includes('topic') && msg.includes('exists')) {
+      topicEnsured = true;
+      return;
+    }
+    throw e;
+  } finally {
+    await admin.disconnect().catch(() => {});
+  }
+}
 
 async function getProducer() {
   if (!producerPromise) {
@@ -53,6 +84,8 @@ export type KafkaTweetEvent = {
 export async function publishTweets(events: KafkaTweetEvent[]) {
   if (!kafkaEnabled()) return { ok: false, skipped: true as const };
   if (!events.length) return { ok: true, sent: 0 };
+
+  await ensureTopic();
 
   const producer = await getProducer();
 
