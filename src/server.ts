@@ -3,6 +3,7 @@ import express from 'express';
 import { mustEnv } from './env.js';
 import { prisma } from './prisma.js';
 import { publishTweetsToStream, type RedisTweetEvent } from './redis.js';
+import { allowCorsAll } from './cors.js';
 
 function adminAuth() {
   const expected = mustEnv('ADMIN_TOKEN');
@@ -18,6 +19,9 @@ function adminAuth() {
 }
 
 const app = express();
+
+// Allow browser-based admin UI to call this API cross-origin.
+app.use(allowCorsAll());
 
 // Request logging (method, path, status, duration). No headers/body logged.
 app.use((req, res, next) => {
