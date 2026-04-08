@@ -34,9 +34,25 @@ model Tweet {
   claimedAt DateTime? @map("claimed_at")
   sentAt    DateTime? @map("sent_to_telegram_at")
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  media   TweetMedia[]
 
   @@index([accountId, createdAt])
   @@index([sentAt, createdAt])
   @@map("tweets")
+}
+
+model TweetMedia {
+  id       String @id @default(cuid())
+  tweetId  String @map("tweet_id")
+  url      String
+  type     String
+  position Int
+
+  tweet Tweet @relation(fields: [tweetId], references: [tweetId], onDelete: Cascade)
+
+  @@unique([tweetId, url])
+  @@unique([tweetId, position])
+  @@index([tweetId, position])
+  @@map("tweet_media")
 }

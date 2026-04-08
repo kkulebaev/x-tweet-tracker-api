@@ -17,13 +17,19 @@ export function redis() {
     });
 
     redisClient.on('error', (e) => {
-      console.warn('redis error', String((e as any)?.message ?? e));
+      console.warn('redis error', String((e as { message?: string })?.message ?? e));
     });
   }
   return redisClient;
 }
 
 export const STREAM_KEY = 'voyager:tweets';
+
+export type RedisTweetMediaEvent = {
+  url: string;
+  type: string;
+  position: number;
+};
 
 export type RedisTweetEvent = {
   type: 'tweet.upserted';
@@ -33,6 +39,7 @@ export type RedisTweetEvent = {
   createdAt: string;
   text: string;
   url: string;
+  media: RedisTweetMediaEvent[];
 };
 
 export async function publishTweetsToStream(events: RedisTweetEvent[]) {

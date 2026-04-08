@@ -2,8 +2,28 @@ import 'dotenv/config';
 import express from 'express';
 import { mustEnv } from './env.js';
 import { prisma } from './prisma.js';
-import { publishTweetsToStream, type RedisTweetEvent } from './redis.js';
+import { publishTweetsToStream, type RedisTweetEvent, type RedisTweetMediaEvent } from './redis.js';
 import { allowCorsAll } from './cors.js';
+
+type PushTweetDTO = {
+  id?: unknown;
+  text?: unknown;
+  url?: unknown;
+  created_at?: unknown;
+  createdAt?: unknown;
+  mediaUrls?: unknown;
+  raw?: unknown;
+};
+
+type ClaimedTweetRow = {
+  tweet_id: string;
+};
+
+type SerializedTweetMedia = {
+  url: string;
+  type: string;
+  position: number;
+};
 
 function adminAuth() {
   const expected = mustEnv('ADMIN_TOKEN');
@@ -16,6 +36,54 @@ function adminAuth() {
     }
     next();
   };
+}
+
+function isPushTweetArray(value: unknown): value is PushTweetDTO[] {
+  return Array.isArray(value);
+}
+
+function normalizeMediaUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const urls: string[] = [];
+
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const url = item.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+
+  return urls;
+}
+
+function toMediaCreateMany(mediaUrls: string[]) {
+  return mediaUrls.map((url, index) => ({
+    url,
+    type: 'photo',
+    position: index,
+  }));
+}
+
+function serializeMedia(media: Array<{ url: string; type: string; position: number }>): SerializedTweetMedia[] {
+  return media
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((item) => ({
+      url: item.url,
+      type: item.type,
+      position: item.position,
+    }));
+}
+
+function toRedisMedia(media: SerializedTweetMedia[]): RedisTweetMediaEvent[] {
+  return media.map((item) => ({
+    url: item.url,
+    type: item.type,
+    position: item.position,
+  }));
 }
 
 const app = express();
@@ -66,7 +134,7 @@ app.post('/admin/accounts', adminAuth(), async (req, res) => {
 app.patch('/admin/accounts/:id', adminAuth(), async (req, res) => {
   const id = String(req.params.id);
 
-  const patch: any = {};
+  const patch: Record<string, boolean | string> = {};
 
   if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled;
 
@@ -93,7 +161,7 @@ app.delete('/admin/accounts/:id', adminAuth(), async (req, res) => {
 app.post('/admin/tweets/push', adminAuth(), async (req, res) => {
   const accountId = String(req.body?.accountId ?? '').trim();
   const newestId = req.body?.newestId ? String(req.body.newestId).trim() : null;
-  const tweets = Array.isArray(req.body?.tweets) ? req.body.tweets : null;
+  const tweets = isPushTweetArray(req.body?.tweets) ? req.body.tweets : null;
 
   if (!accountId) return res.status(400).json({ ok: false, error: 'accountId is required' });
   if (!tweets) return res.status(400).json({ ok: false, error: 'tweets[] is required' });
@@ -108,30 +176,54 @@ app.post('/admin/tweets/push', adminAuth(), async (req, res) => {
   const sorted = [...tweets].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
   for (const t of sorted) {
-    const id = t?.id ? String(t.id).trim() : '';
-    const text = typeof t?.text === 'string' ? t.text : '';
-    const url = typeof t?.url === 'string' ? t.url : '';
-    const createdAtRaw = t?.created_at ?? t?.createdAt;
+    const id = typeof t.id === 'string' ? t.id.trim() : '';
+    const text = typeof t.text === 'string' ? t.text : '';
+    const url = typeof t.url === 'string' ? t.url : '';
+    const createdAtRaw = t.created_at ?? t.createdAt;
     const createdAt = createdAtRaw ? new Date(String(createdAtRaw)) : new Date();
+    const mediaUrls = normalizeMediaUrls(t.mediaUrls);
 
     if (!id) continue;
 
-    await prisma.tweet.upsert({
-      where: { tweetId: id },
-      create: {
-        tweetId: id,
-        accountId: accountId,
-        createdAt,
-        text,
-        url,
-        raw: t?.raw ?? t,
-      },
-      update: {
-        text,
-        url,
-        raw: t?.raw ?? t,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.tweet.upsert({
+        where: { tweetId: id },
+        create: {
+          tweetId: id,
+          accountId,
+          createdAt,
+          text,
+          url,
+          raw: t.raw ?? t,
+        },
+        update: {
+          text,
+          url,
+          raw: t.raw ?? t,
+        },
+      });
+
+      await tx.tweetMedia.deleteMany({ where: { tweetId: id } });
+
+      if (mediaUrls.length > 0) {
+        await tx.tweetMedia.createMany({
+          data: toMediaCreateMany(mediaUrls).map((item) => ({
+            tweetId: id,
+            url: item.url,
+            type: item.type,
+            position: item.position,
+          })),
+        });
+      }
     });
+
+    const media = toRedisMedia(
+      mediaUrls.map((mediaUrl, index) => ({
+        url: mediaUrl,
+        type: 'photo',
+        position: index,
+      })),
+    );
 
     events.push({
       type: 'tweet.upserted',
@@ -141,6 +233,7 @@ app.post('/admin/tweets/push', adminAuth(), async (req, res) => {
       createdAt: createdAt.toISOString(),
       text,
       url,
+      media,
     });
 
     inserted += 1;
@@ -154,7 +247,7 @@ app.post('/admin/tweets/push', adminAuth(), async (req, res) => {
   try {
     await publishTweetsToStream(events);
   } catch (e) {
-    console.warn('Redis publish failed', String((e as any)?.message ?? e));
+    console.warn('Redis publish failed', String((e as { message?: string })?.message ?? e));
   }
 
   res.json({ ok: true, inserted, accountId, newestId });
@@ -164,16 +257,19 @@ app.get('/admin/tweets', adminAuth(), async (req, res) => {
   const xUsername = String(req.query.x_username ?? '').trim().replace(/^@/, '');
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 200);
 
-  const whereAccount = xUsername ? { account: { xUsername } } : {};
-
   const tweets = await prisma.tweet.findMany({
-    where: whereAccount as any,
+    where: xUsername ? { account: { xUsername } } : undefined,
     orderBy: { createdAt: 'desc' },
     take: limit,
-    include: { account: true },
+    include: {
+      account: true,
+      media: {
+        orderBy: { position: 'asc' },
+      },
+    },
   });
 
-  res.json({ ok: true, tweets });
+  res.json({ ok: true, tweets: tweets.map((tweet) => ({ ...tweet, media: serializeMedia(tweet.media) })) });
 });
 
 // --- Telegram forwarder queue endpoints ---
@@ -187,7 +283,7 @@ app.post('/admin/tweets/claim', adminAuth(), async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Only limit=1 is supported' });
   }
 
-  const rows = await prisma.$queryRawUnsafe<any[]>(
+  const rows = await prisma.$queryRawUnsafe<ClaimedTweetRow[]>(
     `
     WITH cte AS (
       SELECT t.tweet_id
@@ -202,7 +298,7 @@ app.post('/admin/tweets/claim', adminAuth(), async (req, res) => {
       SET claimed_at = now()
     FROM cte
     WHERE t.tweet_id = cte.tweet_id
-    RETURNING t.*;
+    RETURNING t.tweet_id;
   `,
   );
 
@@ -210,9 +306,34 @@ app.post('/admin/tweets/claim', adminAuth(), async (req, res) => {
     return res.json({ ok: true, tweet: null });
   }
 
-  const tweet = rows[0];
-  const account = await prisma.account.findUnique({ where: { id: tweet.account_id } });
-  return res.json({ ok: true, tweet, account });
+  const claimedTweetId = rows[0]?.tweet_id;
+  if (!claimedTweetId) {
+    return res.json({ ok: true, tweet: null });
+  }
+
+  const tweet = await prisma.tweet.findUnique({
+    where: { tweetId: claimedTweetId },
+    include: {
+      account: true,
+      media: {
+        orderBy: { position: 'asc' },
+      },
+    },
+  });
+
+  if (!tweet) {
+    return res.status(404).json({ ok: false, error: 'Claimed tweet not found' });
+  }
+
+  const { account: claimedAccount, media, ...tweetFields } = tweet;
+  return res.json({
+    ok: true,
+    tweet: {
+      ...tweetFields,
+      media: serializeMedia(media),
+    },
+    account: claimedAccount,
+  });
 });
 
 // Mark tweet as sent (idempotent)
